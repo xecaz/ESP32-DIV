@@ -175,7 +175,12 @@ void init() {
     // is back: bit-bang attempts produced corrupted reads on this bus
     // (presses registering as the wrong direction). Wire's occasional
     // 1-second stalls are the lesser evil.
-    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/100000);
+    // 50 kHz instead of 100 kHz: doubles the SCL half-cycle, giving slow
+    // edges (which the bodged SDA/SCL wires create) time to actually
+    // settle high before the slave samples. The PCF8574 spec says
+    // 0–100 kHz so this is well within tolerances. Halving the rate
+    // measurably reduces single-bit-shifted reads on this board.
+    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/50000);
     Wire.setTimeOut(50);
 
     // Buzzer was desoldered on this device (it shipped buzzing
