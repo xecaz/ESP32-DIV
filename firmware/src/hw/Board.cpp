@@ -99,29 +99,50 @@ bool spiBusy() {
 }
 
 void storageTaskEntry(void*) {
-    // Deferred low-priority SD mount. Each failed SD.begin takes ~1 s on
-    // this board's slot, so we don't want to:
-    //   - block boot with a synchronous attempt (user sees a frozen splash)
-    //   - hammer the bus with constant retries (each retry is 1 s of
-    //     FSPI hammering that correlates with I²C glitches elsewhere)
+    // Background SD mount. Each failed SD.begin takes ~1 s, so we want
+    // to retry often enough that a freshly inserted card mounts within
+    // a few seconds, but not so often that we burn FSPI bus time when
+    // no card is in.
     //
-    // Strategy: wait 3 s after boot so input + UI tasks have settled,
-    // then attempt a single mount. If it succeeds, done — sit idle. If
-    // it fails, back off slowly (30 s → 5 min) so the user gets fresh
-    // chances after physically (re-)seating the card without burning
-    // bus time when nothing has changed. A future hot-plug detector on
-    // SD_CD can short-circuit the long sleeps when wired up.
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    uint32_t backoffMs = 30000;
+    // Strategy:
+    //   - Boot: short stagger (300 ms) so the splash + UI tasks render
+    //     before the first 1-second SD.begin, but the user doesn't
+    //     have to wait long for SD-dependent screens to come alive.
+    //   - On failure: backoff 2 → 4 → 8 → 16 → 30 s (capped). Quick
+    //     enough to catch most "card just got seated" scenarios.
+    //   - SD_CD edge detection: any change on the card-detect line
+    //     (insertion or removal) resets the backoff so re-insertion
+    //     mounts within a poll period.
+    //
+    // SD_CD polling: every 250 ms (cheap GPIO read). The mount-attempt
+    // gate uses its own deadline so we don't accidentally stall every
+    // 250 ms on a 1 s SD.begin.
+    vTaskDelay(pdMS_TO_TICKS(300));
+    uint32_t backoffMs     = 2000;
+    uint32_t nextAttemptMs = 0;
+    bool     lastPresent   = sdCardPresent();
     for (;;) {
-        if (!spiBusy() && !g_sdMounted) {
-            if (mountSd()) {
-                backoffMs = 30000;          // reset on success
-            } else if (backoffMs < 300000) {
-                backoffMs *= 2;             // 30 → 60 → 120 → 240 → 300 s
-            }
+        // CD edge detection — wakes us up on insertion/removal.
+        bool present = sdCardPresent();
+        if (present != lastPresent) {
+            lastPresent = present;
+            backoffMs = 2000;
+            nextAttemptMs = 0;
+            if (!present && g_sdMounted) unmountSd();
         }
-        vTaskDelay(pdMS_TO_TICKS(g_sdMounted ? 60000 : backoffMs));
+
+        bool mounted = g_sdMounted;
+        if (!spiBusy() && !mounted &&
+            (int32_t)(millis() - nextAttemptMs) >= 0) {
+            if (mountSd()) {
+                backoffMs = 2000;
+            } else {
+                if (backoffMs < 30000) backoffMs *= 2;
+                if (backoffMs > 30000) backoffMs = 30000;
+            }
+            nextAttemptMs = millis() + backoffMs;
+        }
+        vTaskDelay(pdMS_TO_TICKS(mounted ? 5000 : 250));
     }
 }
 }

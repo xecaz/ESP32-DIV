@@ -35,4 +35,17 @@ Tuning& tuning();
 struct RawTouch { int16_t x, y; uint16_t z; uint32_t tMs; };
 RawTouch lastRawTouch();
 
+// PCF8574 I²C bus diagnostics — running counters maintained by the
+// background poller task. Used by the I²C-health screen so the user
+// can A/B test pull-up changes empirically.
+struct PcfStats {
+    uint32_t okCount;        // successful Wire.requestFrom calls
+    uint32_t failCount;      // failed reads (any error code)
+    uint32_t recoverCount;   // pcfRecoverBus invocations
+    uint32_t lastOkAgeMs;    // ms since the most recent successful read
+    uint8_t  latestRaw;      // most recent raw PCF byte (or 0xFF if none)
+};
+PcfStats pcfStats();
+void     resetPcfStats();   // zero the running counters
+
 } // namespace input

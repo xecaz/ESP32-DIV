@@ -30,6 +30,7 @@
 #include "Brightness.h"
 #include "ThemePick.h"
 #include "UsbModePick.h"
+#include "I2cHealth.h"
 
 namespace ui {
 
@@ -43,7 +44,8 @@ const char* const NRF_ITEMS[]    = { "Spectrum", "Protokill", nullptr };
 const char* const SUBGHZ_ITEMS[] = { "Record", "Replay", "Jammer", nullptr };
 const char* const IR_ITEMS[]     = { "Record", "Replay", nullptr };
 const char* const TOOLS_ITEMS[]  = { "Ducky (USB)", "USB HID Test", "Storage",
-                                     "Diagnostics", "Keyboard Test", nullptr };
+                                     "I2C Health", "Diagnostics",
+                                     "Keyboard Test", nullptr };
 const char* const SETTINGS_ITEMS[] = { "Wi-Fi Network", "LEDs", "USB Mode",
                                        "Brightness", "Theme",
                                        "Shield Profile", "Touch Calibrate",
@@ -124,6 +126,9 @@ bool SubMenu::onEvent(const input::Event& e) {
                 }
                 else if (!strcmp(category_, "Tools") && !strcmp(item, "Ducky (USB)")) {
                     push(new DuckyUsbScreen());
+                }
+                else if (!strcmp(category_, "Tools") && !strcmp(item, "I2C Health")) {
+                    push(new I2cHealthScreen());
                 }
                 else if (!strcmp(category_, "Settings") &&
                          !strcmp(item, "Touch Calibrate")) {

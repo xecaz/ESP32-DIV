@@ -65,6 +65,7 @@ volatile uint8_t  g_latestPcfRaw    = 0xFF;
 volatile uint32_t g_latestPcfReadMs = 0;
 volatile uint32_t g_pcfPollOk       = 0;
 volatile uint32_t g_pcfPollFail     = 0;
+volatile uint32_t g_pcfRecoverCount = 0;
 
 // Stale-data threshold. If the cached PCF byte is older than this, the
 // input loop freezes its debounce/repeat state. Tighter is better for
@@ -136,6 +137,7 @@ void pcfPollerTask(void*) {
             digitalRead(pins::I2C_SDA) == LOW ||
             digitalRead(pins::I2C_SCL) == LOW) {
             pcfRecoverBus();
+            g_pcfRecoverCount++;
             lastOkMs = millis();
             vTaskDelay(pdMS_TO_TICKS(1));
             continue;
@@ -155,6 +157,7 @@ void pcfPollerTask(void*) {
             // accumulate stalled calls.
             if (millis() - lastOkMs > 50) {
                 pcfRecoverBus();
+                g_pcfRecoverCount++;
                 lastOkMs = millis();
             }
         }
@@ -384,6 +387,22 @@ QueueHandle_t  queue()  { return g_queue; }
 
 RawTouch lastRawTouch() {
     return RawTouch{ g_rawX, g_rawY, g_rawZ, g_rawMs };
+}
+
+PcfStats pcfStats() {
+    PcfStats s{};
+    s.okCount       = g_pcfPollOk;
+    s.failCount     = g_pcfPollFail;
+    s.recoverCount  = g_pcfRecoverCount;
+    s.lastOkAgeMs   = millis() - g_latestPcfReadMs;
+    s.latestRaw     = g_latestPcfRaw;
+    return s;
+}
+
+void resetPcfStats() {
+    g_pcfPollOk       = 0;
+    g_pcfPollFail     = 0;
+    g_pcfRecoverCount = 0;
 }
 
 void start() {
