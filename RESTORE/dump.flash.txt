@@ -1,0 +1,7 @@
+Dump:
+python3 /home/xecaz/.arduino15/packages/esp32/tools/esptool_py/4.5.1/esptool.py --chip esp32s3 --port /dev/ttyUSB1 --baud 921600 read_flash 0x0 0x400000 esp32-div_backup_2026-04-24.bin
+
+Resore:
+python3 /home/xecaz/.arduino15/packages/esp32/tools/esptool_py/4.5.1/esptool.py --chip esp32s3 --port /dev/ttyACM1 --baud 921600 write_flash --flash_size detect 0x0  
+  esp32-div_backup_2026-04-24.bin
+

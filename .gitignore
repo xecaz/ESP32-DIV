@@ -1,0 +1,31 @@
+# PlatformIO build artefacts
+firmware/.pio/
+firmware/.vscode/
+firmware/.cache/
+
+# Python virtualenv used to run pio
+firmware/.venv/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# Build outputs / firmware blobs
+*.elf
+*.bin
+*.map
+
+# Local secrets / runtime
+*.local
+*.env
+
+# Pre-existing reference firmware build dirs (cifertech RESTORE backup)
+RESTORE/build/
+
+# Cifertech upstream reference (separate git repo) — excluded by default
+# to keep our repo focused on the firmware we wrote. Re-add later if you
+# want to vendor it in.
+ESP32-DIV/
