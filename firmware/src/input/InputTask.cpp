@@ -67,12 +67,28 @@ volatile uint32_t g_pcfPollOk       = 0;
 volatile uint32_t g_pcfPollFail     = 0;
 volatile uint32_t g_pcfRecoverCount = 0;
 
-// Stale-data threshold. If the cached PCF byte is older than this, the
-// input loop freezes its debounce/repeat state. Tighter is better for
-// responsiveness — 30 ms covers normal poll jitter + recovery time but
-// still trips quickly when the bus actually stalls, preventing run-away
-// repeats from stale "pressed" data.
-constexpr uint32_t PCF_STALE_THRESH_MS = 30;
+// Handle for the poller task — published so the INT ISR can wake it
+// via task notification.
+TaskHandle_t g_pcfPollerHandle = nullptr;
+
+// PCF8574T INT pin ISR: pulse the poller awake. Chip pulls INT LOW the
+// instant any input bit changes vs. the last read, goes HIGH again
+// after we read it. We're edge-triggered FALLING; multiple changes
+// during a Wire transaction coalesce into one wake (which is fine —
+// the next read picks up the latest state).
+void IRAM_ATTR pcfIntIsr() {
+    BaseType_t hpw = pdFALSE;
+    if (g_pcfPollerHandle) {
+        vTaskNotifyGiveFromISR(g_pcfPollerHandle, &hpw);
+    }
+    portYIELD_FROM_ISR(hpw);
+}
+
+// Stale-data threshold. With INT-driven reads, cache is authoritative
+// between INT events — only goes stale if the bus is actually wedged.
+// 250 ms covers the 200 ms safety-net poll plus jitter; the gate now
+// only trips on a real bus stall, not on idle.
+constexpr uint32_t PCF_STALE_THRESH_MS = 250;
 
 // Direct read of the I²C peripheral status register. The IDF tracks
 // "bus busy" here; when it's set, a Wire.requestFrom would block ~1 s
@@ -123,23 +139,42 @@ void pcfRecoverBus() {
 }
 
 void pcfPollerTask(void*) {
-    // Mark the cache as freshly initialised so the input task isn't
-    // stuck waiting for the first successful read at boot.
+    // INT pin from the PCF8574T (bodged GPIO 2) drives this task. We
+    // only hit the I²C bus when the chip tells us something actually
+    // changed — the rest of the time the bus is silent, which means
+    // the 1-second IDF bus-busy stalls have nothing to interrupt.
+    pinMode(pins::PCF_INT, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(pins::PCF_INT),
+                    pcfIntIsr, FALLING);
+
     g_latestPcfReadMs = millis();
     uint32_t lastOkMs = millis();
+
+    // Initial read to capture state and drive INT high so the next real
+    // change generates a fresh edge.
+    {
+        uint8_t raw;
+        if (readPcfRaw(&raw)) {
+            g_latestPcfRaw    = raw;
+            g_latestPcfReadMs = millis();
+            g_pcfPollOk++;
+        }
+    }
+
     for (;;) {
-        // Pre-check: read the IDF's bus-busy bit AND the physical
-        // line state. Either being "wedged" means a Wire.requestFrom
-        // would block ~1 s in the IDF's wait-for-busy-clear loop.
-        // Skipping is a single memory load; recovery is ~150 µs. Way
-        // cheaper than letting the call stall.
+        // Sleep until either the ISR notifies us (button changed) or
+        // 200 ms passes (safety net so a missed edge or unwired INT
+        // doesn't leave us silent forever). Either way we'll do one
+        // read on wake.
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
+
+        // Bus state pre-check before issuing the Wire call.
         if (idfBusBusy() ||
             digitalRead(pins::I2C_SDA) == LOW ||
             digitalRead(pins::I2C_SCL) == LOW) {
             pcfRecoverBus();
             g_pcfRecoverCount++;
             lastOkMs = millis();
-            vTaskDelay(pdMS_TO_TICKS(1));
             continue;
         }
 
@@ -151,19 +186,12 @@ void pcfPollerTask(void*) {
             lastOkMs = millis();
         } else {
             g_pcfPollFail++;
-            // Wire failed but bus didn't look stuck — IDF's internal
-            // bus-busy flag may be set even though SDA/SCL are high.
-            // Recover proactively after a short fail streak so we don't
-            // accumulate stalled calls.
             if (millis() - lastOkMs > 50) {
                 pcfRecoverBus();
                 g_pcfRecoverCount++;
                 lastOkMs = millis();
             }
         }
-        // 1 ms cadence when bus is healthy = ~500 reads/sec, freshness
-        // window <2 ms, STREAK=4 debounce ≈ 4 ms KeyDown latency.
-        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
@@ -437,11 +465,11 @@ void start() {
     xTaskCreatePinnedToCore(taskEntry, "input", 4096, nullptr,
                             /*prio=*/3, nullptr, /*coreId=*/1);
     // Poller at high priority on core 0 so it preempts UI rendering, USB
-    // CDC, and other peripherals when it's ready to run. Each iteration
-    // is short (<1 ms when bus is healthy, otherwise immediately
-    // recovers and yields), so the preemption doesn't visibly affect UI.
+    // CDC, and other peripherals when it's ready to run. With INT-driven
+    // wakes the task is mostly asleep, so the priority bump is "wake
+    // fast" not "run constantly."
     xTaskCreatePinnedToCore(pcfPollerTask, "pcf_poll", 4096, nullptr,
-                            /*prio=*/5, nullptr, /*coreId=*/0);
+                            /*prio=*/5, &g_pcfPollerHandle, /*coreId=*/0);
 }
 
 const char* keyName(Key k) {

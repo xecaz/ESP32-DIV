@@ -35,6 +35,13 @@ constexpr int TOUCH_CS_PIN   = 18;
 constexpr uint8_t PCF_I2C_ADDR = 0x20;
 constexpr int     I2C_SDA      = 41;   // bodged from PCF pin 15
 constexpr int     I2C_SCL      = 42;   // bodged from PCF pin 14
+// PCF8574T's INT pin (chip pin 13) bodge-wired to GPIO 2 (the empty
+// buzzer pad on the PCB — buzzer was desoldered earlier). INT is open-
+// drain, asserted LOW whenever any input bit changed since the last
+// read; goes back HIGH after we read the chip. With this wired we can
+// run the I²C bus on-demand instead of constantly polling, eliminating
+// the 1-second IDF stalls that were dropping ~50 % of presses.
+constexpr int     PCF_INT      = 2;
 // These are PCF8574 bit indices, NOT GPIO numbers.
 constexpr int BTN_UP     = 7;
 constexpr int BTN_DOWN   = 5;
