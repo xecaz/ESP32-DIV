@@ -19,6 +19,11 @@ private:
     bool     lastHadCapture_ = false;
     String   lastSave_;
     uint32_t saveMs_ = 0;
+    // Touch debounce: rapid taps used to push N keyboards onto the stack
+    // before any of them ran, eventually crashing the device. We ignore
+    // touch on the freq box for a short window after a tap until the
+    // pushed keyboard's callback resets this.
+    bool     kbActive_ = false;
 };
 
 // Browse /subghz/*.bin, load + transmit on SELECT.

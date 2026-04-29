@@ -27,8 +27,11 @@ bool SubGhzReplayScreen::onEvent(const input::Event& e) {
     using input::EventType; using input::Key;
 
     // Tap on the frequency line (top area of the body, below header) opens
-    // the numeric keyboard to type a frequency directly.
-    if (e.type == EventType::TouchDown && e.y >= 40 && e.y <= 90) {
+    // the numeric keyboard to type a frequency directly. Guarded by
+    // kbActive_ so rapid taps don't queue multiple keyboard pushes — that
+    // pattern was crashing the device under fast fingertapping.
+    if (e.type == EventType::TouchDown && e.y >= 40 && e.y <= 90 && !kbActive_) {
+        kbActive_ = true;
         char buf[16];
         snprintf(buf, sizeof(buf), "%.3f", freqHz_ / 1000000.0);
         SubGhzReplayScreen* self = this;
@@ -41,6 +44,7 @@ bool SubGhzReplayScreen::onEvent(const input::Event& e) {
                 }
             }
             radio::cc1101::startRx(self->freqHz_);
+            self->kbActive_ = false;
             self->dirty();
         }, /*mask=*/false, Keyboard::StartLayer::Numeric));
         return true;

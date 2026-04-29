@@ -98,11 +98,17 @@ void taskEntry(void*) {
         drainCommands();
         uint32_t t1 = millis();
 
-        // Drain input events (non-blocking, all in one tick).
+        // Drain input events with command-draining BETWEEN each event.
+        // If one event causes a push() (e.g. tap on a freq field opens a
+        // numeric keyboard), the next event must hit the newly-pushed
+        // screen, not the underlying one. Without the drain inside the
+        // loop, rapid touches were pushing N keyboards onto the stack
+        // before any of them ran — eventually crashing the device.
         input::Event e;
         int evCount = 0;
         while (xQueueReceive(input::queue(), &e, 0) == pdTRUE) {
             if (auto* s = topScreen()) s->onEvent(e);
+            drainCommands();
             ++evCount;
         }
         uint32_t t2 = millis();
