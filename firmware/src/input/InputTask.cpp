@@ -181,25 +181,20 @@ constexpr uint8_t BUTTON_MASK =
     (1u << pins::BTN_LEFT)  | (1u << pins::BTN_RIGHT) |
     (1u << pins::BTN_SELECT);
 
-// Read the cached PCF byte populated by pcfPollerTask. Apply three
+// Read the cached PCF byte populated by pcfPollerTask. Apply two
 // filters before trusting the value:
 //   1. Freshness: cache must be ≤ PCF_STALE_THRESH_MS old.
-//   2. Unused-bit invariant: PCF bits 0–2 are not wired to anything and
-//      its internal pull-ups should keep them at 1. Any of them reading
-//      0 means the read is bit-shifted or otherwise corrupt — reject.
-//      This catches the SELECT-reads-as-DOWN single-bit-shift cases
-//      that the popcount filter alone lets through.
-//   3. Popcount: at most one button bit may be low at a time (real
-//      multi-key presses aren't part of this UI).
+//   2. Popcount: at most one button bit may be low at a time.
+//
+// (An earlier "unused bits 0-2 must read as 1" invariant turned out to
+//  reject ALL reads on this board — those bits don't reliably stay
+//  high, possibly because they're wired to something undocumented.
+//  Removed.)
 bool readPcf(uint8_t* out) {
     uint32_t age = millis() - g_latestPcfReadMs;
     if (age > PCF_STALE_THRESH_MS) return false;
     uint8_t r = g_latestPcfRaw;
-    if ((r & (uint8_t)~BUTTON_MASK) != (uint8_t)~BUTTON_MASK) {
-        // Unused bit pulled low → corrupt read.
-        return false;
-    }
-    uint8_t raw = r | (uint8_t)~BUTTON_MASK;
+    uint8_t raw = r | (uint8_t)~BUTTON_MASK;   // force unused bits to 1
     if (__builtin_popcount((uint8_t)~raw) > 1) return false;
     *out = raw;
     return true;
