@@ -9,7 +9,23 @@ of the vendor's contractor firmware. It adds reliable input debounce, WiFi
 station setup, a real voltage-based battery gauge, and shared-SPI bus
 arbitration that the stock firmware lacks.
 
-## Build & flash
+## Prebuilt firmware (no toolchain needed)
+
+A ready-to-flash merged image is committed here as `esp32div-MK1-v1.0.0.bin`
+(bootloader + partitions + OTA data + app, flash at `0x0`). See
+[`how-to-flash.md`](how-to-flash.md) for Windows/macOS/Linux instructions (web
+flasher or `esptool`). To regenerate it after a `pio run`:
+
+```
+B=.pio/build/esp32div
+BA=~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin
+.venv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32s3 \
+  merge_bin --flash_mode keep --flash_freq keep --flash_size keep \
+  -o esp32div-MK1-v1.0.0.bin \
+  0x0 $B/bootloader.bin 0x8000 $B/partitions.bin 0xe000 $BA 0x10000 $B/firmware.bin
+```
+
+## Build & flash from source
 
 ```
 cd firmware

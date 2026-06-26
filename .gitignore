@@ -17,6 +17,8 @@ Thumbs.db
 *.elf
 *.bin
 *.map
+# ...except the released, flashable merged firmware images we ship for testers.
+!firmware/esp32div-*.bin
 
 # Local secrets / runtime
 *.local

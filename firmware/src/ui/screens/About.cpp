@@ -9,7 +9,7 @@
 namespace ui {
 
 namespace {
-constexpr const char* VERSION = "MK1 v0.9.0-dev";
+constexpr const char* VERSION = "MK1 v1.0.0";
 
 const char* pageTitle(AboutScreen::Page p) {
     switch (p) {
