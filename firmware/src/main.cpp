@@ -135,6 +135,11 @@ void setup() {
     board::tft.fillScreen(TFT_BLACK);
     const int sx = (240 - SPLASH_CTRLVOID_W) / 2;
     const int sy = (320 - SPLASH_CTRLVOID_H) / 2;
+    // The splash array is RGB565 in natural (high-byte-first) order, but the
+    // ESP32 stores each uint16 little-endian, so TFT_eSPI must swap bytes when
+    // it streams the buffer — otherwise hues come out scrambled. (The old
+    // mostly-black/white logo hid this: 0x0000/0xFFFF are swap-symmetric.)
+    board::tft.setSwapBytes(true);
     board::tft.pushImage(sx, sy, SPLASH_CTRLVOID_W, SPLASH_CTRLVOID_H,
                          SPLASH_CTRLVOID);
     board::tft.setTextFont(2);
