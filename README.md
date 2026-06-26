@@ -6,9 +6,8 @@ ESP-IDF (Arduino as a component), FreeRTOS task architecture, touch + D-pad UI.
 
 This is a **clean reimplementation** of the CiferTech ESP32-DIV concept — not a
 fork of the vendor's contractor firmware. The source lives in
-[`firmware/`](firmware/); see [`firmware/README.md`](firmware/README.md) for
-build/flash and [`firmware/CLAUDE.md`](firmware/CLAUDE.md) for the board's bus
-map and hardware truths.
+[`firmware/`](firmware/) — see the `README.md` and `CLAUDE.md` there for
+build/flash, the board's bus map, and hardware truths.
 
 > **Hardware note:** this board revision dropped the CP2102 USB-C bridge (flash
 > over the ESP32-S3 built-in USB-Serial/JTAG) and ships the correct **R30/R31
