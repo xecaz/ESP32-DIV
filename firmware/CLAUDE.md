@@ -21,8 +21,9 @@ cd firmware
 ```
 
 - Board: `esp32-s3-devkitc-1`, 16 MB flash, **no PSRAM**.
-- **No serial console on this board** (see USB note). Use the on-device
-  **I²C Health** screen for diagnostics, not `pio device monitor`.
+- **Serial console = USB-CDC** (see USB note): `pio device monitor` works over
+  the USB-C cable. Log to the global `USBSerial`, not `Serial` (UART0 is dead).
+  The on-device **I²C Health** screen is still handy for live bus stats.
 
 ## Hardware truths (verify against `../ESP32-DIV/Schematic/` before pin changes)
 
@@ -47,14 +48,18 @@ conflate them**:
   the bogus hardcoded "70%". Prefer reading VBAT via the **GPIO2 ADC**
   (`analogReadMilliVolts(2) * 2`), calibrated.
 - **USB / no CP2102 on this revision.** The CP2102 USB-C bridge was dropped
-  (empty pads remain). The board flashes over the ESP32-S3 **built-in
-  USB-Serial/JTAG** (`303A:1001`) on `/dev/ttyACM0` — esptool auto-resets into
-  download mode, no manual BOOT/RESET. While our firmware runs it takes over the
-  single USB PHY as a **TinyUSB OTG composite (MSC/HID, no CDC)**, so ttyACM0
-  disappears and there is **no serial console**. The S3 has one USB PHY shared
-  between USB-OTG and USB-Serial/JTAG, so we can't run the JTAG console
-  alongside MSC/HID. **TODO:** add a CDC interface to the composite (MSC+CDC+HID)
-  and route logging to it → serial back over the same cable, no soldering.
+  (empty pads remain). At the bootloader the board enumerates as the ESP32-S3
+  **built-in USB-Serial/JTAG** (`303A:1001`) on `/dev/ttyACM0`. While our
+  firmware runs it takes over the single USB PHY as a **TinyUSB OTG composite
+  (MSC + HID + CDC)**. The CDC ACM is our serial console (`usb/UsbSerial.h`,
+  global `USBSerial`): `pio device monitor` shows logs over the same USB-C
+  cable, and esptool auto-resets into the bootloader via CDC DTR/RTS — **no
+  manual BOOT/RESET**. The CDC is registered manually (USBCDC ctor → static
+  init, before `USB.begin()`), **not** via `ARDUINO_USB_CDC_ON_BOOT` — that flag
+  calls `USB.begin()` before `setup()` and would lock the descriptor before
+  HID/MSC register. `Serial` (UART0) is dead on this board; **log to
+  `USBSerial`, never `Serial`.** Earliest boot lines (before the host
+  re-enumerates the composite) are lost — expected.
 
 ## Reference
 
