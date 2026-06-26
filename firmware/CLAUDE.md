@@ -53,8 +53,12 @@ conflate them**:
   firmware runs it takes over the single USB PHY as a **TinyUSB OTG composite
   (MSC + HID + CDC)**. The CDC ACM is our serial console (`usb/UsbSerial.h`,
   global `USBSerial`): `pio device monitor` shows logs over the same USB-C
-  cable, and esptool auto-resets into the bootloader via CDC DTR/RTS — **no
-  manual BOOT/RESET**. The CDC is registered manually (USBCDC ctor → static
+  cable. CDC DTR/RTS *does* trigger a reboot, but the OTG→ROM-bootloader USB
+  handoff is **not seamless** — the OTG-CDC port vanishes mid-handshake and the
+  board can hang, so esptool fails. **Flashing still needs the manual BOOT+RESET
+  combo** (hold BOOT, tap RESET, release BOOT) to drop into the ROM USB-Serial/
+  JTAG download mode; the CDC win is the **serial console**, not hands-free
+  flashing. The CDC is registered manually (USBCDC ctor → static
   init, before `USB.begin()`), **not** via `ARDUINO_USB_CDC_ON_BOOT` — that flag
   calls `USB.begin()` before `setup()` and would lock the descriptor before
   HID/MSC register. `Serial` (UART0) is dead on this board; **log to
