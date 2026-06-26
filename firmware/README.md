@@ -15,11 +15,17 @@ arbitration that the stock firmware lacks.
 cd firmware
 .venv/bin/pio run -e esp32div            # build
 .venv/bin/pio run -e esp32div -t upload  # flash over USB (/dev/ttyACM0)
+.venv/bin/pio device monitor             # USB-CDC serial console
 ```
 
-This board revision flashes over the ESP32-S3 built-in USB-Serial/JTAG — no
-manual boot-mode entry needed. There is no serial console on this revision; use
-the on-device **I²C Health** screen for diagnostics.
+The CP2102 bridge was dropped this revision, so flashing goes over the ESP32-S3
+built-in USB-Serial/JTAG. The running firmware claims native USB as a TinyUSB
+composite (MSC + HID + **CDC console**), so `pio device monitor` shows logs over
+the same USB-C cable — but to flash you must first drop the running firmware
+into ROM download mode with the **manual BOOT+RESET combo** (hold BOOT, tap
+RESET, release BOOT): the CDC can trigger a reboot but the OTG→ROM USB handoff
+isn't seamless. Logs go to the global `USBSerial` (`Serial`/UART0 is dead). The
+on-device **I²C Health** screen is also handy for live I²C bus stats.
 
 ## Hardware & architecture
 
@@ -30,6 +36,8 @@ truth).
 
 ## Status
 
-Active branch `stock-pins-battery`: moving from old-board hardware bodges to the
-stock board (correct R30/R31 I²C pull-ups), and adding a GPIO2-ADC battery
-monitor. See the "Current work" section of `CLAUDE.md`.
+Active branch `stock-pins-battery`: moved off the old-board hardware bodges onto
+the stock board (correct R30/R31 I²C pull-ups, no bodge wires). Done: stock I²C
+bus at 400 kHz, GPIO2-ADC battery gauge (calibrated, LiPo curve, header icon),
+and a USB-CDC serial console added to the composite. Still open: buzzer driver
+and battery-curve linearity check. See the "Current work" section of `CLAUDE.md`.
