@@ -3,6 +3,7 @@
 #include <TFT_eSPI.h>
 
 #include "../hw/Board.h"
+#include "../hw/BatteryMonitor.h"
 #include "../storage/Settings.h"
 
 namespace ui { namespace theme {
@@ -86,6 +87,39 @@ void drawHeader(TFT_eSPI& tft, const char* title) {
     tft.setCursor(12, 4);
     tft.print(title);
     tft.setTextFont(2);
+    drawBattery(tft);
+}
+
+void drawBattery(TFT_eSPI& tft) {
+    const auto& p = g_current;
+    // We own a tight top-right region of the header (clear of left-aligned
+    // titles, which end well before x=164).
+    constexpr int RX = 164, RW = 240 - RX;
+    tft.fillRect(RX, 0, RW, 30, p.headerBg);
+    if (!battery::present()) return;   // no plausible reading → draw nothing
+
+    const uint8_t pct = battery::percent();
+
+    // Battery icon (body + nub), right-aligned with an 8 px margin.
+    constexpr int bw = 26, bh = 14;
+    const int bx = 240 - 8 - bw;
+    const int by = (30 - bh) / 2;
+    const uint16_t col = pct > 50 ? p.ok : (pct > 20 ? TFT_YELLOW : p.warn);
+    tft.drawRect(bx, by, bw, bh, p.headerFg);
+    tft.fillRect(bx + bw, by + 4, 2, bh - 8, p.headerFg);          // + terminal nub
+    const int innerW = bw - 4;
+    const int fillW  = pct * innerW / 100;
+    tft.fillRect(bx + 2, by + 2, fillW, bh - 4, col);              // charge level
+    tft.fillRect(bx + 2 + fillW, by + 2, innerW - fillW, bh - 4, p.headerBg);
+
+    // Percentage, right-aligned just left of the icon.
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%u%%", (unsigned)pct);
+    tft.setTextFont(2);
+    tft.setTextColor(p.headerFg, p.headerBg);
+    tft.setTextDatum(TR_DATUM);
+    tft.drawString(buf, bx - 5, by - 1);
+    tft.setTextDatum(TL_DATUM);
 }
 
 void clearBody(TFT_eSPI& tft) {

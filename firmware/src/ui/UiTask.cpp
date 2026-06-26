@@ -8,8 +8,10 @@
 
 #include "../hw/Board.h"
 #include "../hw/Pins.h"
+#include "../hw/BatteryMonitor.h"
 #include "../input/InputTask.h"
 #include "../usb/DuckyRunner.h"
+#include "Theme.h"
 
 namespace ui {
 
@@ -144,28 +146,17 @@ void taskEntry(void*) {
                           (unsigned long)(t5 - t4));
         }
 
-        // Heartbeat once every 2 s: tick rate + worst single-frame time
-        // observed in that window. A healthy UI shows ticks≈120 in 2 s
-        // with maxFrame<5 ms. Anything dramatically off means either the
-        // task is being preempted or a render is running long.
+        // Every 2 s: refresh the battery gauge and repaint the header
+        // indicator. Done here on the UI task so the TFT is only ever touched
+        // by a single thread. (The old [ui-hb] serial heartbeat was removed —
+        // there's no serial console on this board, and Serial.flush() to the
+        // dead UART stalled the UI ~7 ms every 2 s.)
         ++hbTicks;
         if (total > hbMaxFrame) hbMaxFrame = total;
         uint32_t nowMs = millis();
         if (nowMs - lastHbMs >= 2000) {
-            auto p = input::pcfStats();
-            Serial.printf("[ui-hb] %lus ticks=%lu max=%lums | "
-                          "i2c ok=%lu fail=%lu tmo=%lu rec=%lu "
-                          "age=%lums raw=0x%02x\n",
-                          (unsigned long)(nowMs / 1000),
-                          (unsigned long)hbTicks,
-                          (unsigned long)hbMaxFrame,
-                          (unsigned long)p.okCount,
-                          (unsigned long)p.failCount,
-                          (unsigned long)p.timeoutCount,
-                          (unsigned long)p.recoverCount,
-                          (unsigned long)p.lastOkAgeMs,
-                          p.latestRaw);
-            Serial.flush();
+            battery::update();
+            theme::drawBattery(board::tft);
             hbTicks    = 0;
             hbMaxFrame = 0;
             lastHbMs   = nowMs;

@@ -6,6 +6,7 @@
 #include "../Theme.h"
 #include "../UiTask.h"
 #include "../../input/InputTask.h"
+#include "../../hw/BatteryMonitor.h"
 
 namespace ui {
 
@@ -33,6 +34,10 @@ bool I2cHealthScreen::onEvent(const input::Event& e) {
         dirty();
         return true;
     }
+    // Live battery calibration: nudge the VBAT scale until the shown mV matches
+    // a metered reading. Persisted to NVS by setCalibration().
+    if (e.key == Key::Up)   { battery::setCalibration(battery::calibration() + 0.05f); dirty(); return true; }
+    if (e.key == Key::Down) { battery::setCalibration(battery::calibration() - 0.05f); dirty(); return true; }
     return false;
 }
 
@@ -97,12 +102,21 @@ void I2cHealthScreen::onRender(TFT_eSPI& tft) {
     tft.printf("recoveries:  %lu", (unsigned long)s.recoverCount);
     tft.setTextColor(p.textDim, p.bg);
 
+    // Battery diagnostics: VBAT (raw pin mV) %  PRES/--- — for calibration and
+    // to see what the pin reads with the cell in vs out. Placed above the
+    // age line so it clears the footer.
+    tft.setCursor(8, 254);
+    tft.setTextColor(p.text, p.bg);
+    tft.printf("bat %umV pin %umV %u%% c%.2f",
+               (unsigned)battery::millivolts(), (unsigned)battery::rawPinMv(),
+               (unsigned)battery::percent(), battery::calibration());
+
     tft.setCursor(8, 274);
     tft.setTextColor(s.lastOkAgeMs > 300 ? p.warn : p.text, p.bg);
     tft.printf("age %lums  raw 0x%02X",
                (unsigned long)s.lastOkAgeMs, s.latestRaw);
 
-    theme::drawFooter(tft, "SEL=reset  LEFT=back");
+    theme::drawFooter(tft, "UP/DN=bat cal  SEL=reset  LEFT=back");
 }
 
 } // namespace ui

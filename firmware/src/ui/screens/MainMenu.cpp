@@ -35,10 +35,11 @@ void MainMenu::onEnter(TFT_eSPI& tft) {
     tft.fillRect(0, 0, 240, 30, p.headerBg);
     tft.setTextFont(4);
     tft.setTextColor(p.headerFg, p.headerBg);
-    const char* title = "CTRL//VOID";
-    int tw = tft.textWidth(title);
-    tft.setCursor((240 - tw) / 2, 4);
-    tft.print(title);
+    // Left-aligned (was centered) so the top-right corner is free for the
+    // battery indicator — brand top-left, status top-right.
+    tft.setCursor(12, 4);
+    tft.print("CTRL//VOID");
+    theme::drawBattery(tft);
 
     lastCursor_ = -1;
     dirty();

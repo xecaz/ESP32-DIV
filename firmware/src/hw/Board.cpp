@@ -10,6 +10,7 @@
 #include <freertos/task.h>
 
 #include "Pins.h"
+#include "BatteryMonitor.h"
 #include "../radio/RadioManager.h"
 
 namespace board {
@@ -184,6 +185,8 @@ void init() {
     // idles as an ADC input; a future buzzer driver flips it to output only
     // while sounding. 12-bit ADC for the battery monitor (Stage 3).
     analogReadResolution(12);
+    battery::begin();
+    battery::update();   // seed a first reading so the gauge isn't blank on boot
 
     // Bring the shared SPI bus up here (not lazily in mountSd) so radios can
     // use it even when no SD card is present. RF24 in particular will call

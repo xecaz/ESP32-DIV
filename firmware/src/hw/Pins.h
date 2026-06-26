@@ -71,7 +71,11 @@ constexpr int IR_TX = 14;
 constexpr int IR_RX = 21;
 
 // ── Misc ────────────────────────────────────────────────────────────────
+// GPIO 2 is shared (stock HW): buzzer output AND the VBAT/2 battery sense
+// (R11/R16 100k divider → ADC1_CH1). Read battery when not buzzing.
+// (BATTERY_ADC was 34 — a legacy/wrong value; GPIO34 isn't usable on the S3
+//  and the real divider lands on GPIO 2 per the schematic.)
 constexpr int BUZZER      = 2;
-constexpr int BATTERY_ADC = 34;
+constexpr int BATTERY_ADC = 2;
 
 } // namespace pins

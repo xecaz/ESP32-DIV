@@ -37,6 +37,11 @@ void drawHeader(TFT_eSPI& tft, const char* title);   // 30 px title bar
 void clearBody (TFT_eSPI& tft);                      // wipe y=34..301
 void drawFooter(TFT_eSPI& tft, const char* hint);    // 18 px hint strip
 
+// Battery indicator in the top-right of the header (icon + %). Drawn by
+// drawHeader, and repainted periodically by the UI task so it stays live.
+// Renders nothing when no cell is detected (battery::present() == false).
+void drawBattery(TFT_eSPI& tft);
+
 // Paints a red "no SD card" strip just above the footer (y=282, h=18)
 // when board::sdMounted() is false. When the card is in, it's a no-op —
 // no "SD OK" chrome, per the user's request. Call it at the end of
