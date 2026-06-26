@@ -123,7 +123,7 @@ void pcfRecoverBus() {
     // flag at the silicon level — Wire.end() alone often doesn't.
     Wire.end();
     periph_module_reset(PERIPH_I2C0_MODULE);
-    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/100000);
+    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/400000);
     Wire.setTimeOut(50);
 }
 
@@ -150,12 +150,14 @@ void pcfPollerTask(void*) {
     }
 
     for (;;) {
-        // Fixed ~20 ms poll cadence (≈50 reads/sec). Cheap on the healthy
-        // stock bus, and well under the PCF_STALE_THRESH_MS freshness gate.
-        // (We keep ulTaskNotifyTake as the sleep primitive so a future
-        // INT-wake path could drop straight back in; nothing notifies it
-        // today, so it always returns on the timeout.)
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+        // Fixed ~5 ms poll cadence (≈200 reads/sec). At 400 kHz on the clean
+        // stock bus a read costs well under 0.1 ms, so this is cheap — and it's
+        // the fix for occasional missed key-taps: a quick press shorter than
+        // the old 20 ms window could fall between reads. (We keep
+        // ulTaskNotifyTake as the sleep primitive so a future INT-wake path
+        // could drop straight back in; nothing notifies it today, so it always
+        // returns on the timeout.)
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
         g_pcfTimeoutCount++;
 
         // Bus state pre-check before issuing the Wire call. Use the IDF's
