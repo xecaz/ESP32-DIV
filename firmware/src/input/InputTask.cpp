@@ -150,14 +150,14 @@ void pcfPollerTask(void*) {
     }
 
     for (;;) {
-        // Fixed ~5 ms poll cadence (≈200 reads/sec). At 400 kHz on the clean
-        // stock bus a read costs well under 0.1 ms, so this is cheap — and it's
-        // the fix for occasional missed key-taps: a quick press shorter than
-        // the old 20 ms window could fall between reads. (We keep
+        // Fixed ~2 ms poll cadence (≈500 reads/sec), matched to the input
+        // task's scan rate so each scanKeys() sees fresh data and the streak
+        // debounce counts real samples, not stale re-reads of the cache. At
+        // 400 kHz a read is ~50 µs, so this is ~2.5% bus utilisation. (We keep
         // ulTaskNotifyTake as the sleep primitive so a future INT-wake path
         // could drop straight back in; nothing notifies it today, so it always
         // returns on the timeout.)
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2));
         g_pcfTimeoutCount++;
 
         // Bus state pre-check before issuing the Wire call. Use the IDF's
@@ -268,13 +268,14 @@ void scanKeys(uint32_t now) {
     maybeRecoverBus(ok);
     if (!ok) return; // bus hiccup — skip this tick, no spurious events
 
-    // Streak-based debounce: require N consecutive polls of the same state
-    // before flipping `stable`. Bumped from 2 to 4 to filter the I²C bus
-    // glitches on this board — corrupt single-byte reads were sneaking
-    // through the popcount filter when their random low bit happened to
-    // line up with a button bit, producing ghost presses. At 5 ms poll
-    // cadence, STREAK=4 = 20 ms latency for KeyDown, still imperceptible.
-    constexpr uint8_t STREAK = 3;
+    // Streak-based debounce: require N consecutive fresh reads of the same
+    // state before flipping `stable`. STREAK=3 was a glitch filter for the OLD
+    // broken bus (corrupt reads slipping past the popcount check). The stock
+    // bus is clean (0 faults over thousands of reads), so drop to STREAK=2 —
+    // enough to reject a lone mechanical bounce, low enough that rapid taps
+    // (press+release within a few ms) aren't merged or dropped. At the 2 ms
+    // poll cadence that's ~4 ms latency, imperceptible.
+    constexpr uint8_t STREAK = 2;
 
     for (int i = 0; i < NUM_KEYS; ++i) {
         bool pressed = !((raw >> KEYS[i].pcfBit) & 1u);
