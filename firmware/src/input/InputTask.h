@@ -42,6 +42,8 @@ struct PcfStats {
     uint32_t okCount;        // successful Wire.requestFrom calls
     uint32_t failCount;      // failed reads (any error code)
     uint32_t recoverCount;   // pcfRecoverBus invocations
+    uint32_t intCount;       // PCF INT pin ISR firings
+    uint32_t timeoutCount;   // 200 ms safety-net wakes (no INT)
     uint32_t lastOkAgeMs;    // ms since the most recent successful read
     uint8_t  latestRaw;      // most recent raw PCF byte (or 0xFF if none)
 };

@@ -66,6 +66,8 @@ volatile uint32_t g_latestPcfReadMs = 0;
 volatile uint32_t g_pcfPollOk       = 0;
 volatile uint32_t g_pcfPollFail     = 0;
 volatile uint32_t g_pcfRecoverCount = 0;
+volatile uint32_t g_pcfIntCount     = 0;   // INT ISR firings
+volatile uint32_t g_pcfTimeoutCount = 0;   // 200 ms safety-net wakes
 
 // Handle for the poller task — published so the INT ISR can wake it
 // via task notification.
@@ -77,6 +79,7 @@ TaskHandle_t g_pcfPollerHandle = nullptr;
 // during a Wire transaction coalesce into one wake (which is fine —
 // the next read picks up the latest state).
 void IRAM_ATTR pcfIntIsr() {
+    g_pcfIntCount++;
     BaseType_t hpw = pdFALSE;
     if (g_pcfPollerHandle) {
         vTaskNotifyGiveFromISR(g_pcfPollerHandle, &hpw);
@@ -149,6 +152,7 @@ void pcfPollerTask(void*) {
 
     g_latestPcfReadMs = millis();
     uint32_t lastOkMs = millis();
+    uint8_t  prevValue = 0xFF;   // last *confirmed* PCF byte
 
     // Initial read to capture state and drive INT high so the next real
     // change generates a fresh edge.
@@ -158,20 +162,31 @@ void pcfPollerTask(void*) {
             g_latestPcfRaw    = raw;
             g_latestPcfReadMs = millis();
             g_pcfPollOk++;
+            prevValue = raw;
         }
     }
 
     for (;;) {
-        // Sleep until either the ISR notifies us (button changed) or
-        // 200 ms passes (safety net so a missed edge or unwired INT
-        // doesn't leave us silent forever). Either way we'll do one
-        // read on wake.
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
+        // Sleep until ISR notifies us OR 20 ms passes. The 20 ms safety
+        // net is the actual cadence: INT is bodged direct from PCF pin
+        // 13 to the GPIO 2 pad on the ESP chip, and INPUT_PULLUP is on,
+        // but GPIO 2 still idles LOW. Best theory is that PCF inputs
+        // 0-2 (unused — no buttons wired to them) are noisy on this
+        // board, so PCF INT re-asserts LOW the moment we clear it. The
+        // existing comment in readPcf() confirms those bits don't
+        // reliably stay high. The post-resistor-swap bus is healthy
+        // enough that 50 reads/sec costs nothing, so we just live with
+        // polling instead of chasing the noise to its source.
+        uint32_t intsBefore = g_pcfIntCount;
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+        if (g_pcfIntCount == intsBefore) g_pcfTimeoutCount++;
 
-        // Bus state pre-check before issuing the Wire call.
-        if (idfBusBusy() ||
-            digitalRead(pins::I2C_SDA) == LOW ||
-            digitalRead(pins::I2C_SCL) == LOW) {
+        // Bus state pre-check before issuing the Wire call. Use the IDF's
+        // own bus-busy flag — that's authoritative. (Earlier we also
+        // sampled SDA/SCL with digitalRead, but on I²C-matrixed pins
+        // those don't reliably reflect the line state and were
+        // triggering recovery loops every ~250 ms.)
+        if (idfBusBusy()) {
             pcfRecoverBus();
             g_pcfRecoverCount++;
             lastOkMs = millis();
@@ -180,10 +195,31 @@ void pcfPollerTask(void*) {
 
         uint8_t raw;
         if (readPcfRaw(&raw)) {
-            g_latestPcfRaw    = raw;
-            g_latestPcfReadMs = millis();
-            g_pcfPollOk++;
-            lastOkMs = millis();
+            // Verify-on-change: if the read disagrees with the last
+            // confirmed value, re-read immediately and only accept the
+            // new value if both reads agree. Filters out transient
+            // single-bit-shift corruption that survives STREAK debounce
+            // when it lingers in the cache.
+            if (raw != prevValue) {
+                uint8_t verify;
+                if (readPcfRaw(&verify) && verify == raw) {
+                    prevValue         = raw;
+                    g_latestPcfRaw    = raw;
+                    g_latestPcfReadMs = millis();
+                    g_pcfPollOk++;
+                    lastOkMs = millis();
+                } else {
+                    // Mismatch or second read failed — discard. Cache
+                    // stays as it was; INT will fire again if state
+                    // truly changed.
+                    g_pcfPollFail++;
+                }
+            } else {
+                // Unchanged — just refresh the timestamp.
+                g_latestPcfReadMs = millis();
+                g_pcfPollOk++;
+                lastOkMs = millis();
+            }
         } else {
             g_pcfPollFail++;
             if (millis() - lastOkMs > 50) {
@@ -426,6 +462,8 @@ PcfStats pcfStats() {
     s.okCount       = g_pcfPollOk;
     s.failCount     = g_pcfPollFail;
     s.recoverCount  = g_pcfRecoverCount;
+    s.intCount      = g_pcfIntCount;
+    s.timeoutCount  = g_pcfTimeoutCount;
     s.lastOkAgeMs   = millis() - g_latestPcfReadMs;
     s.latestRaw     = g_latestPcfRaw;
     return s;
@@ -435,14 +473,14 @@ void resetPcfStats() {
     g_pcfPollOk       = 0;
     g_pcfPollFail     = 0;
     g_pcfRecoverCount = 0;
+    g_pcfIntCount     = 0;
+    g_pcfTimeoutCount = 0;
 }
 
 void start() {
     if (g_queue) return;  // idempotent
     g_queue = xQueueCreate(16, sizeof(Event));
 
-    // PCF8574 bring-up: write 0xFF so every bit is high (quasi-bidirectional
-    // input mode).
     // PCF8574 bring-up: write 0xFF so every bit is high (quasi-bidirectional
     // input mode).
     Wire.beginTransmission(pins::PCF_I2C_ADDR);

@@ -82,21 +82,27 @@ void I2cHealthScreen::onRender(TFT_eSPI& tft) {
     tft.fillRect(BAR_X + 1 + fill, BAR_Y + 1,
                  BAR_W - 2 - fill, BAR_H - 2, p.bg);
 
-    // Cumulative counters + last-read freshness.
+    // Cumulative counters. Of particular interest: INT vs timeout.
+    // INT >> timeout means the bodge wire is working and we're reading
+    // on demand. INT == 0 means INT isn't reaching the ESP32 — wire
+    // loose / bad pad / wrong pin.
     tft.setTextColor(p.textDim, p.bg);
     tft.setCursor(8, 200);
-    tft.printf("ok total:    %lu", (unsigned long)s.okCount);
+    tft.printf("ok %lu  fail %lu",
+               (unsigned long)s.okCount, (unsigned long)s.failCount);
     tft.setCursor(8, 218);
-    tft.printf("fail total:  %lu", (unsigned long)s.failCount);
+    tft.setTextColor(s.intCount ? p.ok : p.warn, p.bg);
+    tft.printf("INT fires:   %lu", (unsigned long)s.intCount);
+    tft.setTextColor(p.textDim, p.bg);
     tft.setCursor(8, 236);
+    tft.printf("tmo wakes:   %lu", (unsigned long)s.timeoutCount);
+    tft.setCursor(8, 254);
     tft.printf("recoveries:  %lu", (unsigned long)s.recoverCount);
 
-    tft.setCursor(8, 258);
-    tft.setTextColor(s.lastOkAgeMs > 100 ? p.warn : p.text, p.bg);
-    tft.printf("last ok age: %lums", (unsigned long)s.lastOkAgeMs);
-    tft.setCursor(8, 276);
-    tft.setTextColor(p.textDim, p.bg);
-    tft.printf("latest raw:  0x%02X", s.latestRaw);
+    tft.setCursor(8, 274);
+    tft.setTextColor(s.lastOkAgeMs > 300 ? p.warn : p.text, p.bg);
+    tft.printf("age %lums  raw 0x%02X",
+               (unsigned long)s.lastOkAgeMs, s.latestRaw);
 
     theme::drawFooter(tft, "SEL=reset  LEFT=back");
 }
