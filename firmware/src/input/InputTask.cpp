@@ -1,4 +1,5 @@
 #include "InputTask.h"
+#include "../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -401,7 +402,7 @@ void taskEntry(void*) {
         uint32_t now = millis();
         uint32_t poll_gap = now - lastPollMs;
         if (poll_gap >= SLOW_POLL_MS) {
-            Serial.printf("[input-slow] poll gap=%lums\n",
+            USBSerial.printf("[input-slow] poll gap=%lums\n",
                           (unsigned long)poll_gap);
         }
         lastPollMs = now;
@@ -417,7 +418,7 @@ void taskEntry(void*) {
         if (now - lastDropReport >= 1000) {
             uint32_t d = g_dropped;
             if (d != lastDropCount) {
-                Serial.printf("[input-drop] queue dropped %lu since last report\n",
+                USBSerial.printf("[input-drop] queue dropped %lu since last report\n",
                               (unsigned long)(d - lastDropCount));
                 lastDropCount = d;
             }

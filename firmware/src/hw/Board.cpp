@@ -1,4 +1,5 @@
 #include "Board.h"
+#include "../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -50,7 +51,7 @@ bool mountSd() {
     uint32_t dur = millis() - t0;
     if (ok) {
         g_sdMounted = true;
-        Serial.printf("[sd] mount OK type=%u size=%lluMB (took %lums)\n",
+        USBSerial.printf("[sd] mount OK type=%u size=%lluMB (took %lums)\n",
                       SD.cardType(),
                       SD.cardSize() / (1024ULL * 1024ULL),
                       (unsigned long)dur);
@@ -59,7 +60,7 @@ bool mountSd() {
     // Log slow failures so we can see if a present-but-stubborn card is
     // burning bus time on every retry.
     if (dur > 200) {
-        Serial.printf("[sd] mount FAIL took %lums\n", (unsigned long)dur);
+        USBSerial.printf("[sd] mount FAIL took %lums\n", (unsigned long)dur);
     }
     return false;
 }

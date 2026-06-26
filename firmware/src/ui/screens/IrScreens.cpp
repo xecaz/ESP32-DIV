@@ -1,4 +1,5 @@
 #include "IrScreens.h"
+#include "../../usb/UsbSerial.h"
 
 #include <TFT_eSPI.h>
 #include <IRremoteESP8266.h>
@@ -53,7 +54,7 @@ bool IrRecordScreen::onEvent(const input::Event& e) {
                 String name  = radio::ir::saveCapture(cc, label.c_str());
                 self->lastSave_ = name.length() ? name : String("SAVE FAILED");
                 self->saveMs_   = millis();
-                Serial.printf("[ir] save -> %s (label=%s)\n",
+                USBSerial.printf("[ir] save -> %s (label=%s)\n",
                               self->lastSave_.c_str(), label.c_str());
             }));
             return true;

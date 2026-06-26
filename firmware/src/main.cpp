@@ -2,6 +2,7 @@
 // See /home/xecaz/.claude/plans/in-this-directory-you-zazzy-lark.md for the plan.
 
 #include <Arduino.h>
+#include "usb/UsbSerial.h"
 #include <Wire.h>
 #include <sys/time.h>
 #include <time.h>
@@ -96,26 +97,28 @@ const char* usbModeName(storage::UsbMode m) {
 } // namespace
 
 void setup() {
-    // ARDUINO_USB_CDC_ON_BOOT is 0, so `Serial` is HardwareSerial(0) on
-    // UART0 (the CP2102 chip / /dev/ttyUSB0). Native USB-OTG CDC is left
-    // off entirely — running it without an actual host on the OTG port
-    // appeared to interact badly with the I²C peripheral.
-    Serial.begin(115200);
+    // Logging goes to USBSerial — the CDC interface of our USB-OTG composite
+    // (UART0 `Serial` has no bridge on this revision). begin() here is harmless:
+    // the interface is already registered (USBCDC ctor, static init), and
+    // usb::start() calls begin() again later when the composite comes up. Writes
+    // are dropped (never block) until a host enumerates, so these early boot
+    // logs only appear if a monitor is already attached across the re-enumerate.
+    USBSerial.begin(115200);
 
     // Log why we rebooted. Most reboots on this board are caused by the
     // CP2102's DTR line glitching EN on USB plug/unplug (= EXT reset) —
     // a hardware quirk, not our bug. POWERON means true power cycle
     // (IP5306 woke up). PANIC/WDT mean actual firmware issues.
     esp_reset_reason_t rr = esp_reset_reason();
-    Serial.printf("[boot] reset_reason=%d ", (int)rr);
+    USBSerial.printf("[boot] reset_reason=%d ", (int)rr);
     switch (rr) {
-        case ESP_RST_POWERON:   Serial.println("(POWERON)"); break;
-        case ESP_RST_EXT:       Serial.println("(EXT-reset from CP2102/USB plug)"); break;
-        case ESP_RST_BROWNOUT:  Serial.println("(BROWNOUT — power sag)"); break;
-        case ESP_RST_WDT:       Serial.println("(TASK-WDT)"); break;
-        case ESP_RST_PANIC:     Serial.println("(PANIC — check coredump)"); break;
-        case ESP_RST_SW:        Serial.println("(SW reset)"); break;
-        default:                Serial.println("(other)"); break;
+        case ESP_RST_POWERON:   USBSerial.println("(POWERON)"); break;
+        case ESP_RST_EXT:       USBSerial.println("(EXT-reset from CP2102/USB plug)"); break;
+        case ESP_RST_BROWNOUT:  USBSerial.println("(BROWNOUT — power sag)"); break;
+        case ESP_RST_WDT:       USBSerial.println("(TASK-WDT)"); break;
+        case ESP_RST_PANIC:     USBSerial.println("(PANIC — check coredump)"); break;
+        case ESP_RST_SW:        USBSerial.println("(SW reset)"); break;
+        default:                USBSerial.println("(other)"); break;
     }
 
     board::init();
@@ -181,7 +184,7 @@ void setup() {
     for (int i = 0; i < 20 && !board::sdMounted(); ++i) delay(100);
     usb::start();
 
-    Serial.printf("[boot] CTRL//VOID ready, usb=%s sd=%d\n",
+    USBSerial.printf("[boot] CTRL//VOID ready, usb=%s sd=%d\n",
                   usbModeName(storage::get().usbMode), (int)board::sdMounted());
 }
 

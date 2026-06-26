@@ -1,4 +1,5 @@
 #include "SubMenu.h"
+#include "../../usb/UsbSerial.h"
 
 #include <TFT_eSPI.h>
 #include <string.h>
@@ -164,8 +165,8 @@ bool SubMenu::onEvent(const input::Event& e) {
                 else if (!strcmp(item, "Keyboard Test")) {
                     push(new Keyboard("Enter wifi password:", "",
                                       [](const String* t) {
-                        if (t) Serial.printf("[kbd] got: '%s'\n", t->c_str());
-                        else    Serial.println("[kbd] canceled");
+                        if (t) USBSerial.printf("[kbd] got: '%s'\n", t->c_str());
+                        else    USBSerial.println("[kbd] canceled");
                     }, /*mask=*/false));
                 }
                 // M5/M6 Wi-Fi features.

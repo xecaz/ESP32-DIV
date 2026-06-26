@@ -1,4 +1,5 @@
 #include "UiTask.h"
+#include "../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
@@ -83,8 +84,8 @@ void taskEntry(void*) {
     // catch-up burst keeps the input queue idle for an extra frame.
     constexpr TickType_t tick = pdMS_TO_TICKS(16); // ~60 Hz cap
 
-    Serial.println("[ui-task] entered");
-    Serial.flush();
+    USBSerial.println("[ui-task] entered");
+    USBSerial.flush();
 
     uint32_t lastWakeMs = millis();
     uint32_t lastHbMs   = lastWakeMs;
@@ -135,7 +136,7 @@ void taskEntry(void*) {
 
         uint32_t total = t5 - t0;
         if (SLOW_TICK_THRESH_MS && total >= SLOW_TICK_THRESH_MS) {
-            Serial.printf("[ui-slow] total=%lums gap=%lums cmds=%lu "
+            USBSerial.printf("[ui-slow] total=%lums gap=%lums cmds=%lu "
                           "ev(%d)=%lu tick=%lu render(%d)=%lu ducky=%lu\n",
                           (unsigned long)total,
                           (unsigned long)gap,
@@ -149,7 +150,7 @@ void taskEntry(void*) {
         // Every 2 s: refresh the battery gauge and repaint the header
         // indicator. Done here on the UI task so the TFT is only ever touched
         // by a single thread. (The old [ui-hb] serial heartbeat was removed —
-        // there's no serial console on this board, and Serial.flush() to the
+        // there's no serial console on this board, and USBSerial.flush() to the
         // dead UART stalled the UI ~7 ms every 2 s.)
         ++hbTicks;
         if (total > hbMaxFrame) hbMaxFrame = total;

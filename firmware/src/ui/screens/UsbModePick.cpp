@@ -1,4 +1,5 @@
 #include "UsbModePick.h"
+#include "../../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
@@ -59,7 +60,7 @@ void UsbModePickScreen::confirmAndApply() {
     auto& s = storage::mut();
     s.usbMode = want;
     storage::save();
-    Serial.printf("[usbmode] saved %d, rebooting\n", (int)want);
+    USBSerial.printf("[usbmode] saved %d, rebooting\n", (int)want);
     delay(50);
     esp_restart();
 }
