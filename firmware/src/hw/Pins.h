@@ -26,22 +26,16 @@ constexpr int TOUCH_SCLK_PIN = 36;
 constexpr int TOUCH_CS_PIN   = 18;
 
 // ── Buttons via PCF8574 I²C expander ────────────────────────────────────
-// Original board wiring routes the PCF SDA/SCL to GPIO 8/9, but those
-// pins exhibited a recurring "1-second bus-busy" stall on this unit
-// (root cause unknown — software workarounds didn't stick). Bodge wires
-// from PCF8574T pin 15 (SDA) → GPIO 41 and pin 14 (SCL) → GPIO 42 give
-// us a parallel path; the firmware drives I²C on the bodged pair, and
-// GPIO 8/9 sit as silent inputs.
+// Stock wiring: the PCF8574T (0x20) and the IP5306 battery PMIC (0x75)
+// share ONE I²C bus on GPIO 8 (SDA) / GPIO 9 (SCL), pulled up by R30/R31
+// (1k each, per schematic). The old unit's flaky reads / 1-second bus
+// stalls traced to missing/faulty R30/R31 — and were bodged around on
+// that board (SDA/SCL → GPIO 41/42, PCF INT → GPIO 2). This revision has
+// correct R30/R31, so we run the stock bus with NO bodges. That also frees
+// GPIO 2 for its real owners: the buzzer and the VBAT/2 battery sense.
 constexpr uint8_t PCF_I2C_ADDR = 0x20;
-constexpr int     I2C_SDA      = 41;   // bodged from PCF pin 15
-constexpr int     I2C_SCL      = 42;   // bodged from PCF pin 14
-// PCF8574T's INT pin (chip pin 13) bodge-wired to GPIO 2 (the empty
-// buzzer pad on the PCB — buzzer was desoldered earlier). INT is open-
-// drain, asserted LOW whenever any input bit changed since the last
-// read; goes back HIGH after we read the chip. With this wired we can
-// run the I²C bus on-demand instead of constantly polling, eliminating
-// the 1-second IDF stalls that were dropping ~50 % of presses.
-constexpr int     PCF_INT      = 2;
+constexpr int     I2C_SDA      = 8;    // stock SDA (shared with IP5306 0x75)
+constexpr int     I2C_SCL      = 9;    // stock SCL (shared with IP5306 0x75)
 // These are PCF8574 bit indices, NOT GPIO numbers.
 constexpr int BTN_UP     = 7;
 constexpr int BTN_DOWN   = 5;
@@ -77,7 +71,11 @@ constexpr int IR_TX = 14;
 constexpr int IR_RX = 21;
 
 // ── Misc ────────────────────────────────────────────────────────────────
+// GPIO 2 is shared (stock HW): buzzer output AND the VBAT/2 battery sense
+// (R11/R16 100k divider → ADC1_CH1). Read battery when not buzzing.
+// (BATTERY_ADC was 34 — a legacy/wrong value; GPIO34 isn't usable on the S3
+//  and the real divider lands on GPIO 2 per the schematic.)
 constexpr int BUZZER      = 2;
-constexpr int BATTERY_ADC = 34;
+constexpr int BATTERY_ADC = 2;
 
 } // namespace pins

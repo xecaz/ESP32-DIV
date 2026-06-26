@@ -87,13 +87,13 @@ void AboutScreen::onRender(TFT_eSPI& tft) {
             tft.print("CTRL//VOID firmware");
             tft.setTextColor(p.textDim, p.bg);
             tft.setCursor(8, 80);
-            tft.print("Coded by Claude");
+            tft.print("Coded by Xecaz & Claude");
             tft.setCursor(8, 98);
-            tft.print("with some heavy backseat");
+            tft.print("With Claude doing all");
             tft.setCursor(8, 116);
-            tft.print("steering & bitching");
+            tft.print("the mapreading and heavy");
             tft.setCursor(8, 134);
-            tft.print("by Xecaz");
+            tft.print("lifting.");
 
             tft.setTextColor(p.accent, p.bg);
             tft.setCursor(8, 176);

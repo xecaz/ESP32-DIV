@@ -1,4 +1,5 @@
 #include "Board.h"
+#include "../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -10,6 +11,7 @@
 #include <freertos/task.h>
 
 #include "Pins.h"
+#include "BatteryMonitor.h"
 #include "../radio/RadioManager.h"
 
 namespace board {
@@ -49,7 +51,7 @@ bool mountSd() {
     uint32_t dur = millis() - t0;
     if (ok) {
         g_sdMounted = true;
-        Serial.printf("[sd] mount OK type=%u size=%lluMB (took %lums)\n",
+        USBSerial.printf("[sd] mount OK type=%u size=%lluMB (took %lums)\n",
                       SD.cardType(),
                       SD.cardSize() / (1024ULL * 1024ULL),
                       (unsigned long)dur);
@@ -58,7 +60,7 @@ bool mountSd() {
     // Log slow failures so we can see if a present-but-stubborn card is
     // burning bus time on every retry.
     if (dur > 200) {
-        Serial.printf("[sd] mount FAIL took %lums\n", (unsigned long)dur);
+        USBSerial.printf("[sd] mount FAIL took %lums\n", (unsigned long)dur);
     }
     return false;
 }
@@ -171,21 +173,21 @@ void init() {
 
     setBacklight(200);
 
-    // I²C for PCF8574 button expander on bodged GPIO 41/42 (Pins.h). Wire
-    // is back: bit-bang attempts produced corrupted reads on this bus
-    // (presses registering as the wrong direction). Wire's occasional
-    // 1-second stalls are the lesser evil.
-    // 50 kHz instead of 100 kHz: doubles the SCL half-cycle, giving slow
-    // edges (which the bodged SDA/SCL wires create) time to actually
-    // settle high before the slave samples. The PCF8574 spec says
-    // 0–100 kHz so this is well within tolerances. Halving the rate
-    // measurably reduces single-bit-shifted reads on this board.
-    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/50000);
+    // I²C for the PCF8574 button expander + IP5306 battery PMIC on the stock
+    // GPIO 8/9 bus (Pins.h). With the new board's correct R30/R31 1k pull-ups
+    // the bus is clean (verified 0 faults over thousands of reads), so we run
+    // at 400 kHz — the old board's 50 kHz crutch (compensating for the slow
+    // edges on the bodged SDA/SCL wires) is gone.
+    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/400000);
     Wire.setTimeOut(50);
 
-    // Buzzer was desoldered on this device (it shipped buzzing
-    // continuously); no point driving GPIO 2 anywhere. Battery ADC stays.
+    // GPIO 2 is shared on stock HW between the buzzer (present, not desoldered)
+    // and the VBAT/2 battery sense (ADC1_CH1, via the R11/R16 divider). It
+    // idles as an ADC input; a future buzzer driver flips it to output only
+    // while sounding. 12-bit ADC for the battery monitor (Stage 3).
     analogReadResolution(12);
+    battery::begin();
+    battery::update();   // seed a first reading so the gauge isn't blank on boot
 
     // Bring the shared SPI bus up here (not lazily in mountSd) so radios can
     // use it even when no SD card is present. RF24 in particular will call

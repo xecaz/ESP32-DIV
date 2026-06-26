@@ -6,8 +6,14 @@
 #include "UsbMsc.h"
 #include "UsbHid.h"
 #include "UsbHostWatch.h"
+#include "UsbSerial.h"
 #include "../hw/Board.h"
 #include "../storage/Settings.h"
+
+// The composite's CDC console. Defined here (single TU); declared extern in
+// UsbSerial.h for every logging site. Constructing it registers the CDC
+// interface into the TinyUSB descriptor at static-init time, before USB.begin().
+USBCDC USBSerial(0);
 
 namespace usb {
 
@@ -27,14 +33,17 @@ void start() {
 
     // Register interfaces before USB.begin(). Order matters: the composite
     // descriptor is locked in when USB.begin() is called.
-    //   CDC #0 — console, registered automatically by ARDUINO_USB_CDC_ON_BOOT
+    //   CDC #0 — console + esptool auto-reset (manual USBCDC, NOT CDC_ON_BOOT;
+    //            CDC_ON_BOOT would call USB.begin() before setup() and lock the
+    //            descriptor before HID/MSC register — see CLAUDE.md).
     //   HID    — keyboard (wired Ducky foundation)
     //   MSC    — deferred (see UsbMsc.cpp)
+    USBSerial.begin();
     hid::begin();
 
     USB.begin();
     watchHostEvents();  // after USB.begin() so events are delivered
-    Serial.println("[usb] composite started (CDC + HID; MSC pending)");
+    USBSerial.println("[usb] composite started (CDC + HID; MSC pending)");
 }
 
 bool connected() {

@@ -6,6 +6,7 @@
 #include "../Theme.h"
 #include "../UiTask.h"
 #include "../../input/InputTask.h"
+#include "../../hw/BatteryMonitor.h"
 
 namespace ui {
 
@@ -33,6 +34,10 @@ bool I2cHealthScreen::onEvent(const input::Event& e) {
         dirty();
         return true;
     }
+    // Live battery calibration: nudge the VBAT scale until the shown mV matches
+    // a metered reading. Persisted to NVS by setCalibration().
+    if (e.key == Key::Up)   { battery::setCalibration(battery::calibration() + 0.05f); dirty(); return true; }
+    if (e.key == Key::Down) { battery::setCalibration(battery::calibration() - 0.05f); dirty(); return true; }
     return false;
 }
 
@@ -82,23 +87,36 @@ void I2cHealthScreen::onRender(TFT_eSPI& tft) {
     tft.fillRect(BAR_X + 1 + fill, BAR_Y + 1,
                  BAR_W - 2 - fill, BAR_H - 2, p.bg);
 
-    // Cumulative counters + last-read freshness.
+    // Cumulative counters. On the stock 8/9 bus the gauge of health is
+    // the ok/fail ratio and recoveries: fail≈0 and recoveries==0 means the
+    // bus is clean (i.e. R30/R31 are doing their job). "polls" is just the
+    // ~20 ms poller cadence counter.
     tft.setTextColor(p.textDim, p.bg);
     tft.setCursor(8, 200);
-    tft.printf("ok total:    %lu", (unsigned long)s.okCount);
+    tft.printf("ok %lu  fail %lu",
+               (unsigned long)s.okCount, (unsigned long)s.failCount);
     tft.setCursor(8, 218);
-    tft.printf("fail total:  %lu", (unsigned long)s.failCount);
+    tft.printf("polls:       %lu", (unsigned long)s.timeoutCount);
     tft.setCursor(8, 236);
+    tft.setTextColor(s.recoverCount ? p.warn : p.ok, p.bg);
     tft.printf("recoveries:  %lu", (unsigned long)s.recoverCount);
-
-    tft.setCursor(8, 258);
-    tft.setTextColor(s.lastOkAgeMs > 100 ? p.warn : p.text, p.bg);
-    tft.printf("last ok age: %lums", (unsigned long)s.lastOkAgeMs);
-    tft.setCursor(8, 276);
     tft.setTextColor(p.textDim, p.bg);
-    tft.printf("latest raw:  0x%02X", s.latestRaw);
 
-    theme::drawFooter(tft, "SEL=reset  LEFT=back");
+    // Battery diagnostics: VBAT (raw pin mV) %  PRES/--- — for calibration and
+    // to see what the pin reads with the cell in vs out. Placed above the
+    // age line so it clears the footer.
+    tft.setCursor(8, 254);
+    tft.setTextColor(p.text, p.bg);
+    tft.printf("bat %umV pin %umV %u%% c%.2f",
+               (unsigned)battery::millivolts(), (unsigned)battery::rawPinMv(),
+               (unsigned)battery::percent(), battery::calibration());
+
+    tft.setCursor(8, 274);
+    tft.setTextColor(s.lastOkAgeMs > 300 ? p.warn : p.text, p.bg);
+    tft.printf("age %lums  raw 0x%02X",
+               (unsigned long)s.lastOkAgeMs, s.latestRaw);
+
+    theme::drawFooter(tft, "UP/DN=bat cal  SEL=reset  LEFT=back");
 }
 
 } // namespace ui

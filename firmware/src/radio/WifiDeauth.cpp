@@ -1,4 +1,5 @@
 #include "WifiDeauth.h"
+#include "../usb/UsbSerial.h"
 
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -138,7 +139,7 @@ void taskEntry(void*) {
     // Verify what the interface MAC actually ended up as.
     uint8_t actualMac[6] = {};
     esp_wifi_get_mac(WIFI_IF_AP, actualMac);
-    Serial.printf("[deauth] set_mac=0x%x softAP=%d  actual=%02X:%02X:%02X:%02X:%02X:%02X  target=%02X:%02X:%02X:%02X:%02X:%02X\n",
+    USBSerial.printf("[deauth] set_mac=0x%x softAP=%d  actual=%02X:%02X:%02X:%02X:%02X:%02X  target=%02X:%02X:%02X:%02X:%02X:%02X\n",
         (unsigned)macErr, apOk,
         actualMac[0], actualMac[1], actualMac[2], actualMac[3], actualMac[4], actualMac[5],
         g_bssid[0], g_bssid[1], g_bssid[2], g_bssid[3], g_bssid[4], g_bssid[5]);

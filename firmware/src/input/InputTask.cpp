@@ -1,4 +1,5 @@
 #include "InputTask.h"
+#include "../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -66,28 +67,17 @@ volatile uint32_t g_latestPcfReadMs = 0;
 volatile uint32_t g_pcfPollOk       = 0;
 volatile uint32_t g_pcfPollFail     = 0;
 volatile uint32_t g_pcfRecoverCount = 0;
+volatile uint32_t g_pcfIntCount     = 0;   // INT ISR firings
+volatile uint32_t g_pcfTimeoutCount = 0;   // 200 ms safety-net wakes
 
-// Handle for the poller task — published so the INT ISR can wake it
-// via task notification.
+// Handle for the poller task. (Retained from the INT-driven era; the
+// stock bus is polled, so nothing notifies it any more — but start()
+// still wants somewhere to stash the handle.)
 TaskHandle_t g_pcfPollerHandle = nullptr;
 
-// PCF8574T INT pin ISR: pulse the poller awake. Chip pulls INT LOW the
-// instant any input bit changes vs. the last read, goes HIGH again
-// after we read it. We're edge-triggered FALLING; multiple changes
-// during a Wire transaction coalesce into one wake (which is fine —
-// the next read picks up the latest state).
-void IRAM_ATTR pcfIntIsr() {
-    BaseType_t hpw = pdFALSE;
-    if (g_pcfPollerHandle) {
-        vTaskNotifyGiveFromISR(g_pcfPollerHandle, &hpw);
-    }
-    portYIELD_FROM_ISR(hpw);
-}
-
-// Stale-data threshold. With INT-driven reads, cache is authoritative
-// between INT events — only goes stale if the bus is actually wedged.
-// 250 ms covers the 200 ms safety-net poll plus jitter; the gate now
-// only trips on a real bus stall, not on idle.
+// Stale-data threshold: the cached PCF byte must be no older than this or
+// readPcf() rejects it. On the healthy stock bus the poller refreshes
+// every ~20 ms, so 250 ms only trips if the bus is genuinely wedged.
 constexpr uint32_t PCF_STALE_THRESH_MS = 250;
 
 // Direct read of the I²C peripheral status register. The IDF tracks
@@ -134,21 +124,19 @@ void pcfRecoverBus() {
     // flag at the silicon level — Wire.end() alone often doesn't.
     Wire.end();
     periph_module_reset(PERIPH_I2C0_MODULE);
-    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/100000);
+    Wire.begin(pins::I2C_SDA, pins::I2C_SCL, /*freq=*/400000);
     Wire.setTimeOut(50);
 }
 
 void pcfPollerTask(void*) {
-    // INT pin from the PCF8574T (bodged GPIO 2) drives this task. We
-    // only hit the I²C bus when the chip tells us something actually
-    // changed — the rest of the time the bus is silent, which means
-    // the 1-second IDF bus-busy stalls have nothing to interrupt.
-    pinMode(pins::PCF_INT, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(pins::PCF_INT),
-                    pcfIntIsr, FALLING);
-
+    // Polls the PCF8574 on the stock GPIO 8/9 bus. Runs on its own core so
+    // that if the IDF i2c driver ever stalls on bus-busy, only this task
+    // freezes — the input pipeline keeps serving the cached byte. (The old
+    // board drove this via a bodged INT pin on GPIO 2; with correct R30/R31
+    // pull-ups the bus is healthy, so a simple ~20 ms poll is plenty.)
     g_latestPcfReadMs = millis();
     uint32_t lastOkMs = millis();
+    uint8_t  prevValue = 0xFF;   // last *confirmed* PCF byte
 
     // Initial read to capture state and drive INT high so the next real
     // change generates a fresh edge.
@@ -158,20 +146,27 @@ void pcfPollerTask(void*) {
             g_latestPcfRaw    = raw;
             g_latestPcfReadMs = millis();
             g_pcfPollOk++;
+            prevValue = raw;
         }
     }
 
     for (;;) {
-        // Sleep until either the ISR notifies us (button changed) or
-        // 200 ms passes (safety net so a missed edge or unwired INT
-        // doesn't leave us silent forever). Either way we'll do one
-        // read on wake.
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
+        // Fixed ~2 ms poll cadence (≈500 reads/sec), matched to the input
+        // task's scan rate so each scanKeys() sees fresh data and the streak
+        // debounce counts real samples, not stale re-reads of the cache. At
+        // 400 kHz a read is ~50 µs, so this is ~2.5% bus utilisation. (We keep
+        // ulTaskNotifyTake as the sleep primitive so a future INT-wake path
+        // could drop straight back in; nothing notifies it today, so it always
+        // returns on the timeout.)
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2));
+        g_pcfTimeoutCount++;
 
-        // Bus state pre-check before issuing the Wire call.
-        if (idfBusBusy() ||
-            digitalRead(pins::I2C_SDA) == LOW ||
-            digitalRead(pins::I2C_SCL) == LOW) {
+        // Bus state pre-check before issuing the Wire call. Use the IDF's
+        // own bus-busy flag — that's authoritative. (Earlier we also
+        // sampled SDA/SCL with digitalRead, but on I²C-matrixed pins
+        // those don't reliably reflect the line state and were
+        // triggering recovery loops every ~250 ms.)
+        if (idfBusBusy()) {
             pcfRecoverBus();
             g_pcfRecoverCount++;
             lastOkMs = millis();
@@ -180,10 +175,31 @@ void pcfPollerTask(void*) {
 
         uint8_t raw;
         if (readPcfRaw(&raw)) {
-            g_latestPcfRaw    = raw;
-            g_latestPcfReadMs = millis();
-            g_pcfPollOk++;
-            lastOkMs = millis();
+            // Verify-on-change: if the read disagrees with the last
+            // confirmed value, re-read immediately and only accept the
+            // new value if both reads agree. Filters out transient
+            // single-bit-shift corruption that survives STREAK debounce
+            // when it lingers in the cache.
+            if (raw != prevValue) {
+                uint8_t verify;
+                if (readPcfRaw(&verify) && verify == raw) {
+                    prevValue         = raw;
+                    g_latestPcfRaw    = raw;
+                    g_latestPcfReadMs = millis();
+                    g_pcfPollOk++;
+                    lastOkMs = millis();
+                } else {
+                    // Mismatch or second read failed — discard. Cache
+                    // stays as it was; INT will fire again if state
+                    // truly changed.
+                    g_pcfPollFail++;
+                }
+            } else {
+                // Unchanged — just refresh the timestamp.
+                g_latestPcfReadMs = millis();
+                g_pcfPollOk++;
+                lastOkMs = millis();
+            }
         } else {
             g_pcfPollFail++;
             if (millis() - lastOkMs > 50) {
@@ -253,13 +269,14 @@ void scanKeys(uint32_t now) {
     maybeRecoverBus(ok);
     if (!ok) return; // bus hiccup — skip this tick, no spurious events
 
-    // Streak-based debounce: require N consecutive polls of the same state
-    // before flipping `stable`. Bumped from 2 to 4 to filter the I²C bus
-    // glitches on this board — corrupt single-byte reads were sneaking
-    // through the popcount filter when their random low bit happened to
-    // line up with a button bit, producing ghost presses. At 5 ms poll
-    // cadence, STREAK=4 = 20 ms latency for KeyDown, still imperceptible.
-    constexpr uint8_t STREAK = 3;
+    // Streak-based debounce: require N consecutive fresh reads of the same
+    // state before flipping `stable`. STREAK=3 was a glitch filter for the OLD
+    // broken bus (corrupt reads slipping past the popcount check). The stock
+    // bus is clean (0 faults over thousands of reads), so drop to STREAK=2 —
+    // enough to reject a lone mechanical bounce, low enough that rapid taps
+    // (press+release within a few ms) aren't merged or dropped. At the 2 ms
+    // poll cadence that's ~4 ms latency, imperceptible.
+    constexpr uint8_t STREAK = 2;
 
     for (int i = 0; i < NUM_KEYS; ++i) {
         bool pressed = !((raw >> KEYS[i].pcfBit) & 1u);
@@ -385,7 +402,7 @@ void taskEntry(void*) {
         uint32_t now = millis();
         uint32_t poll_gap = now - lastPollMs;
         if (poll_gap >= SLOW_POLL_MS) {
-            Serial.printf("[input-slow] poll gap=%lums\n",
+            USBSerial.printf("[input-slow] poll gap=%lums\n",
                           (unsigned long)poll_gap);
         }
         lastPollMs = now;
@@ -401,7 +418,7 @@ void taskEntry(void*) {
         if (now - lastDropReport >= 1000) {
             uint32_t d = g_dropped;
             if (d != lastDropCount) {
-                Serial.printf("[input-drop] queue dropped %lu since last report\n",
+                USBSerial.printf("[input-drop] queue dropped %lu since last report\n",
                               (unsigned long)(d - lastDropCount));
                 lastDropCount = d;
             }
@@ -426,6 +443,8 @@ PcfStats pcfStats() {
     s.okCount       = g_pcfPollOk;
     s.failCount     = g_pcfPollFail;
     s.recoverCount  = g_pcfRecoverCount;
+    s.intCount      = g_pcfIntCount;
+    s.timeoutCount  = g_pcfTimeoutCount;
     s.lastOkAgeMs   = millis() - g_latestPcfReadMs;
     s.latestRaw     = g_latestPcfRaw;
     return s;
@@ -435,14 +454,14 @@ void resetPcfStats() {
     g_pcfPollOk       = 0;
     g_pcfPollFail     = 0;
     g_pcfRecoverCount = 0;
+    g_pcfIntCount     = 0;
+    g_pcfTimeoutCount = 0;
 }
 
 void start() {
     if (g_queue) return;  // idempotent
     g_queue = xQueueCreate(16, sizeof(Event));
 
-    // PCF8574 bring-up: write 0xFF so every bit is high (quasi-bidirectional
-    // input mode).
     // PCF8574 bring-up: write 0xFF so every bit is high (quasi-bidirectional
     // input mode).
     Wire.beginTransmission(pins::PCF_I2C_ADDR);
@@ -464,10 +483,9 @@ void start() {
     // pulling fresh bytes (the cached value just goes a bit stale).
     xTaskCreatePinnedToCore(taskEntry, "input", 4096, nullptr,
                             /*prio=*/3, nullptr, /*coreId=*/1);
-    // Poller at high priority on core 0 so it preempts UI rendering, USB
-    // CDC, and other peripherals when it's ready to run. With INT-driven
-    // wakes the task is mostly asleep, so the priority bump is "wake
-    // fast" not "run constantly."
+    // Poller at high priority on core 0 so its short ~20 ms I²C reads
+    // preempt UI rendering, USB CDC, and other peripherals and stay on a
+    // steady cadence.
     xTaskCreatePinnedToCore(pcfPollerTask, "pcf_poll", 4096, nullptr,
                             /*prio=*/5, &g_pcfPollerHandle, /*coreId=*/0);
 }

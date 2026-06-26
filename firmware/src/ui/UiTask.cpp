@@ -1,4 +1,5 @@
 #include "UiTask.h"
+#include "../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
@@ -7,8 +8,11 @@
 #include <TFT_eSPI.h>
 
 #include "../hw/Board.h"
+#include "../hw/Pins.h"
+#include "../hw/BatteryMonitor.h"
 #include "../input/InputTask.h"
 #include "../usb/DuckyRunner.h"
+#include "Theme.h"
 
 namespace ui {
 
@@ -80,8 +84,8 @@ void taskEntry(void*) {
     // catch-up burst keeps the input queue idle for an extra frame.
     constexpr TickType_t tick = pdMS_TO_TICKS(16); // ~60 Hz cap
 
-    Serial.println("[ui-task] entered");
-    Serial.flush();
+    USBSerial.println("[ui-task] entered");
+    USBSerial.flush();
 
     uint32_t lastWakeMs = millis();
     uint32_t lastHbMs   = lastWakeMs;
@@ -132,7 +136,7 @@ void taskEntry(void*) {
 
         uint32_t total = t5 - t0;
         if (SLOW_TICK_THRESH_MS && total >= SLOW_TICK_THRESH_MS) {
-            Serial.printf("[ui-slow] total=%lums gap=%lums cmds=%lu "
+            USBSerial.printf("[ui-slow] total=%lums gap=%lums cmds=%lu "
                           "ev(%d)=%lu tick=%lu render(%d)=%lu ducky=%lu\n",
                           (unsigned long)total,
                           (unsigned long)gap,
@@ -143,19 +147,17 @@ void taskEntry(void*) {
                           (unsigned long)(t5 - t4));
         }
 
-        // Heartbeat once every 2 s: tick rate + worst single-frame time
-        // observed in that window. A healthy UI shows ticks≈120 in 2 s
-        // with maxFrame<5 ms. Anything dramatically off means either the
-        // task is being preempted or a render is running long.
+        // Every 2 s: refresh the battery gauge and repaint the header
+        // indicator. Done here on the UI task so the TFT is only ever touched
+        // by a single thread. (The old [ui-hb] serial heartbeat was removed —
+        // there's no serial console on this board, and USBSerial.flush() to the
+        // dead UART stalled the UI ~7 ms every 2 s.)
         ++hbTicks;
         if (total > hbMaxFrame) hbMaxFrame = total;
         uint32_t nowMs = millis();
         if (nowMs - lastHbMs >= 2000) {
-            Serial.printf("[ui-hb] %lus ticks=%lu max=%lums\n",
-                          (unsigned long)(nowMs / 1000),
-                          (unsigned long)hbTicks,
-                          (unsigned long)hbMaxFrame);
-            Serial.flush();
+            battery::update();
+            theme::drawBattery(board::tft);
             hbTicks    = 0;
             hbMaxFrame = 0;
             lastHbMs   = nowMs;

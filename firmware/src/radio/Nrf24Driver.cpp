@@ -1,4 +1,5 @@
 #include "Nrf24Driver.h"
+#include "../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -148,14 +149,14 @@ void spectrumTask(void*) {
         if (i == 2 && !tripleOk) break;
         bool ok = all[i].r->begin(&board::busSpi());
         bool chip = ok && all[i].r->isChipConnected();
-        Serial.printf("[nrf24] spectrum %s begin=%d chip=%d%s\n",
+        USBSerial.printf("[nrf24] spectrum %s begin=%d chip=%d%s\n",
                       all[i].name, (int)ok, (int)chip,
                       chip ? " [active]" : "");
         if (chip) active[activeCount++] = all[i].r;
         else      all[i].r->powerDown();
     }
     if (activeCount == 0) {
-        Serial.println("[nrf24] spectrum: no NRF24 module responds — check shield");
+        USBSerial.println("[nrf24] spectrum: no NRF24 module responds — check shield");
         g_spTask = nullptr;
         vTaskDelete(nullptr);
         return;
@@ -169,7 +170,7 @@ void spectrumTask(void*) {
     // longer trips neighbouring modules.
     const int SLICE = (SPECTRUM_CHANNELS + activeCount - 1) / activeCount;
     int base[3] = {0, SLICE, SLICE * 2};
-    Serial.printf("[nrf24] spectrum: %d module(s) active, block-split %d chans each (total %d)\n",
+    USBSerial.printf("[nrf24] spectrum: %d module(s) active, block-split %d chans each (total %d)\n",
                   activeCount, SLICE, SPECTRUM_CHANNELS);
 
     // Bring each active module into PRX mode once. Channel programming

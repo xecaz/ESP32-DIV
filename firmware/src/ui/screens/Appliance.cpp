@@ -1,4 +1,5 @@
 #include "Appliance.h"
+#include "../../usb/UsbSerial.h"
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
@@ -41,7 +42,7 @@ void ApplianceScreen::rebootToStandalone() {
     auto& s = storage::mut();
     s.usbMode = storage::UsbMode::Standalone;
     storage::save();
-    Serial.println("[appliance] SELECT held 3s — rebooting to Standalone");
+    USBSerial.println("[appliance] SELECT held 3s — rebooting to Standalone");
     delay(50);
     esp_restart();
 }
