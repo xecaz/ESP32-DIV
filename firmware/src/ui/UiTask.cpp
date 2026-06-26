@@ -153,21 +153,18 @@ void taskEntry(void*) {
         uint32_t nowMs = millis();
         if (nowMs - lastHbMs >= 2000) {
             auto p = input::pcfStats();
-            int intLevel = digitalRead(pins::PCF_INT);
             Serial.printf("[ui-hb] %lus ticks=%lu max=%lums | "
-                          "i2c ok=%lu fail=%lu int=%lu tmo=%lu rec=%lu "
-                          "age=%lums raw=0x%02x intpin=%d\n",
+                          "i2c ok=%lu fail=%lu tmo=%lu rec=%lu "
+                          "age=%lums raw=0x%02x\n",
                           (unsigned long)(nowMs / 1000),
                           (unsigned long)hbTicks,
                           (unsigned long)hbMaxFrame,
                           (unsigned long)p.okCount,
                           (unsigned long)p.failCount,
-                          (unsigned long)p.intCount,
                           (unsigned long)p.timeoutCount,
                           (unsigned long)p.recoverCount,
                           (unsigned long)p.lastOkAgeMs,
-                          p.latestRaw,
-                          intLevel);
+                          p.latestRaw);
             Serial.flush();
             hbTicks    = 0;
             hbMaxFrame = 0;
