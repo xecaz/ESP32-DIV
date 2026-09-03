@@ -9,6 +9,9 @@ of the vendor's contractor firmware. It adds reliable input debounce, WiFi
 station setup, a real voltage-based battery gauge, and shared-SPI bus
 arbitration that the stock firmware lacks.
 
+The story behind it is written up at
+<https://xecaz.com/blog.html#esp32-div-ctrlvoid>.
+
 ## Prebuilt firmware (no toolchain needed)
 
 A ready-to-flash merged image is committed here as `esp32div-MK1-v1.0.0.bin`

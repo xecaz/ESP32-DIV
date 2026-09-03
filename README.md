@@ -9,6 +9,10 @@ fork of the vendor's contractor firmware. The source lives in
 [`firmware/`](firmware/) — see the `README.md` and `CLAUDE.md` there for
 build/flash, the board's bus map, and hardware truths.
 
+**Write-up:** [How this came about](https://xecaz.com/blog.html#esp32-div-ctrlvoid)
+— what was actually wrong with the stock firmware, the I²C rabbit hole, and the
+two missing pull-up resistors at the bottom of it.
+
 > **Hardware note:** this board revision dropped the CP2102 USB-C bridge (flash
 > over the ESP32-S3 built-in USB-Serial/JTAG) and ships the correct **R30/R31
 > 1 kΩ I²C pull-ups**, so the firmware runs the **stock I²C bus on GPIO 8/9 with
